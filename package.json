@@ -1,0 +1,32 @@
+{
+  "name": "trustescrow_ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TrustEscrow AI is a full-stack platform for freelance project execution where trust is enforced by measurable validation, not subjective approval.",
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w @trustescrow/server",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "npm run build -w @trustescrow/shared && npm run build -w @trustescrow/server && npm run build -w client",
+    "typecheck": "npm run build -w @trustescrow/shared && npm run build -w @trustescrow/server && npm run typecheck -w client"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Manu77211/TrustEscrow_Ai.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Manu77211/TrustEscrow_Ai/issues"
+  },
+  "homepage": "https://github.com/Manu77211/TrustEscrow_Ai#readme",
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
