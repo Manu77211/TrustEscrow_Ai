@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { parseRequirements } from "../../services/requirement-parser.service.js";
+import { generateValidationCriteria } from "../../services/validation-criteria.service.js";
 import {
   ApplyToProjectInput,
   AssignFreelancerInput,
@@ -52,6 +53,15 @@ export async function createProject(clientId: string, input: CreateProjectInput)
     },
   });
 
+  const generated = await generateValidationCriteria(input.description);
+  await prisma.validationCriteria.create({
+    data: {
+      projectId: project.id,
+      type: generated.type,
+      rules: generated.rules as any,
+    },
+  });
+
   return project;
 }
 
@@ -83,7 +93,20 @@ export async function getProjectById(projectId: string) {
       freelancer: {
         select: { id: true, name: true, email: true },
       },
-      milestones: true,
+      milestones: {
+        include: {
+          submissions: {
+            include: {
+              validationReport: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      },
+      validationCriteria: true,
+      validationReports: {
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 }
@@ -98,7 +121,20 @@ export async function getProjectByIdForUser(projectId: string, userId: string, r
       freelancer: {
         select: { id: true, name: true, email: true },
       },
-      milestones: true,
+      milestones: {
+        include: {
+          submissions: {
+            include: {
+              validationReport: true,
+            },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      },
+      validationCriteria: true,
+      validationReports: {
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 }

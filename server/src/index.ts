@@ -8,6 +8,7 @@ import { authRouter } from "./modules/auth/auth.routes.js";
 import { freelancersRouter } from "./modules/freelancers/freelancers.routes.js";
 import { projectsRouter } from "./modules/projects/projects.routes.js";
 import { canAccessProject, createProjectMessage } from "./modules/projects/projects.service.js";
+import { submissionsRouter } from "./modules/submissions/submissions.routes.js";
 import { usersRouter } from "./modules/users/users.routes.js";
 
 const app = express();
@@ -28,6 +29,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/freelancers", freelancersRouter);
 app.use("/api/projects", projectsRouter);
+app.use("/api/submissions", submissionsRouter);
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {

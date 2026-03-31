@@ -6,10 +6,11 @@ import { useParams } from "next/navigation";
 import {
   approveProjectDraftRequest,
   assignFreelancerRequest,
-  createMilestoneSubmissionRequest,
+  createSubmissionRequest,
   getProjectRequest,
   listProjectApplicantsRequest,
   listFreelancersRequest,
+  rateSubmissionRequest,
   selectProjectApplicantRequest,
 } from "../../../../lib/api";
 import { useAuthStore } from "../../../../store/auth-store";
@@ -32,7 +33,7 @@ export default function DashboardProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [rating, setRating] = useState("4.5");
+  const [ratingInputs, setRatingInputs] = useState<Record<string, string>>({});
   const [milestoneForms, setMilestoneForms] = useState<Record<string, MilestoneFormState>>({});
   const [validationResult, setValidationResult] = useState<any>(null);
   const [paymentStatus, setPaymentStatus] = useState<"LOCKED" | "RELEASED" | "DISPUTED">("LOCKED");
@@ -67,6 +68,20 @@ export default function DashboardProjectDetailPage() {
         return acc;
       }, {});
       setMilestoneForms(initialForms);
+
+      const initialRatings = (data.milestones ?? []).reduce((acc: Record<string, string>, milestone: any) => {
+        const latestSubmission = milestone.submissions?.[0];
+        if (latestSubmission?.id) {
+          acc[latestSubmission.id] = latestSubmission.clientRating ? String(latestSubmission.clientRating) : "70";
+        }
+        return acc;
+      }, {});
+      setRatingInputs(initialRatings);
+
+      if (data.validationReports?.length) {
+        setValidationResult(data.validationReports[0]);
+        setPaymentStatus(data.validationReports[0].decision === "APPROVED" ? "RELEASED" : "DISPUTED");
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -78,7 +93,7 @@ export default function DashboardProjectDetailPage() {
     void loadProject();
   }, [token, projectId, user?.role]);
 
-  const finalScore = validationResult?.validationReport?.finalScore ?? 0;
+  const finalScore = validationResult?.finalScore ?? 0;
   const requirementMatch = Math.min(100, Math.max(0, finalScore + 8));
   const completeness = Math.min(100, Math.max(0, finalScore));
   const qualityMetrics = Math.min(100, Math.max(0, finalScore - 6));
@@ -151,7 +166,7 @@ export default function DashboardProjectDetailPage() {
     }
   }
 
-  async function onSubmitMilestone(event: FormEvent, milestoneId: string, kind: "DRAFT" | "FINAL") {
+  async function onSubmitMilestone(event: FormEvent, milestoneId: string) {
     event.preventDefault();
 
     if (!token || !projectId) {
@@ -163,20 +178,11 @@ export default function DashboardProjectDetailPage() {
 
     try {
       const state = milestoneForms[milestoneId] ?? { fileUrl: "", notes: "" };
-      const result = await createMilestoneSubmissionRequest(token, projectId, milestoneId, {
-        kind,
+      await createSubmissionRequest(token, {
+        milestoneId,
         fileUrl: state.fileUrl,
         notes: state.notes,
       });
-
-      if (result.validationReport) {
-        setValidationResult(result);
-        if (result.validationReport.decision === "RELEASED") {
-          setPaymentStatus("RELEASED");
-        } else {
-          setPaymentStatus("DISPUTED");
-        }
-      }
 
       await loadProject();
     } catch (e) {
@@ -186,8 +192,14 @@ export default function DashboardProjectDetailPage() {
     }
   }
 
-  async function onSubmitMilestoneFinal(milestoneId: string) {
-    if (!token || !projectId) {
+  async function onRateSubmission(submissionId: string) {
+    if (!token) {
+      return;
+    }
+
+    const value = Number(ratingInputs[submissionId] ?? "0");
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      setError("Rating must be between 0 and 100");
       return;
     }
 
@@ -195,21 +207,9 @@ export default function DashboardProjectDetailPage() {
     setError(null);
 
     try {
-      const state = milestoneForms[milestoneId] ?? { fileUrl: "", notes: "" };
-      const result = await createMilestoneSubmissionRequest(token, projectId, milestoneId, {
-        kind: "FINAL",
-        fileUrl: state.fileUrl,
-        notes: state.notes,
-      });
-
-      if (result.validationReport) {
-        setValidationResult(result);
-        if (result.validationReport.decision === "RELEASED") {
-          setPaymentStatus("RELEASED");
-        } else {
-          setPaymentStatus("DISPUTED");
-        }
-      }
+      const report = await rateSubmissionRequest(token, submissionId, value);
+      setValidationResult(report);
+      setPaymentStatus(report.decision === "APPROVED" ? "RELEASED" : "DISPUTED");
 
       await loadProject();
     } catch (e) {
@@ -316,7 +316,7 @@ export default function DashboardProjectDetailPage() {
               </div>
 
               {canSubmit ? (
-                <form onSubmit={(event) => onSubmitMilestone(event, milestone.id, "DRAFT")} className="mt-3 space-y-2">
+                <form onSubmit={(event) => onSubmitMilestone(event, milestone.id)} className="mt-3 space-y-2">
                   <Input
                     type="url"
                     placeholder="Submission file URL"
@@ -347,13 +347,38 @@ export default function DashboardProjectDetailPage() {
                   />
                   <div className="flex flex-wrap gap-2">
                     <Button type="submit" variant="secondary" disabled={saving}>
-                      Submit Work (Draft)
-                    </Button>
-                    <Button type="button" disabled={saving} onClick={() => void onSubmitMilestoneFinal(milestone.id)}>
-                      Submit Work (Final)
+                      Submit Work
                     </Button>
                   </div>
                 </form>
+              ) : null}
+
+              {user?.role === "CLIENT" && milestone.submissions?.[0] ? (
+                <div className="mt-3 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                  <p className="text-xs text-slate-400">
+                    Latest submission status: {milestone.submissions[0].status}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={ratingInputs[milestone.submissions[0].id] ?? "70"}
+                      onChange={(event) =>
+                        setRatingInputs((prev) => ({
+                          ...prev,
+                          [milestone.submissions[0].id]: event.target.value,
+                        }))
+                      }
+                    />
+                    <Button
+                      onClick={() => void onRateSubmission(milestone.submissions[0].id)}
+                      disabled={saving || milestone.submissions[0].status !== "VALIDATED"}
+                    >
+                      {saving ? "Scoring..." : "Rate + Decide"}
+                    </Button>
+                  </div>
+                </div>
               ) : null}
             </div>
           ))}
@@ -367,13 +392,11 @@ export default function DashboardProjectDetailPage() {
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
             <p className="text-xs text-slate-400">AI Score</p>
-            <p className="mt-1 text-2xl font-semibold">{validationResult?.validationReport?.aiScore ?? 0}</p>
+            <p className="mt-1 text-2xl font-semibold">{validationResult?.aiScore ?? 0}</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
             <p className="text-xs text-slate-400">Client Rating</p>
-            <div className="mt-2 flex items-center gap-2">
-              <Input value={rating} onChange={(event) => setRating(event.target.value)} type="number" min="0" max="100" />
-            </div>
+            <p className="mt-1 text-2xl font-semibold">{validationResult?.clientRating ?? 0}</p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
             <p className="text-xs text-slate-400">Final Score</p>
@@ -382,6 +405,11 @@ export default function DashboardProjectDetailPage() {
         </div>
 
         <div className="mt-4 space-y-3">
+          {validationResult?.breakdown?.missingElements?.length ? (
+            <p className="text-sm text-amber-300">
+              Missing requirements: {validationResult.breakdown.missingElements.join(", ")}
+            </p>
+          ) : null}
           <div>
             <p className="mb-1 text-xs text-slate-400">Requirement Match</p>
             <ProgressBar value={requirementMatch} />
@@ -401,14 +429,13 @@ export default function DashboardProjectDetailPage() {
         <h3 className="text-lg font-semibold">Payment Status</h3>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <Pill text={paymentStatus} />
-          {canApproveDraft ? (
-            <Button
-              onClick={() => setPaymentStatus(finalScore >= 70 ? "RELEASED" : "DISPUTED")}
-              disabled={finalScore === 0}
-            >
-              Release Payment Decision
-            </Button>
-          ) : null}
+          <p className="text-sm text-slate-400">
+            {paymentStatus === "RELEASED"
+              ? "Escrow released to freelancer wallet."
+              : paymentStatus === "DISPUTED"
+                ? "Escrow remains locked pending dispute resolution."
+                : "Awaiting client rating to compute final decision."}
+          </p>
         </div>
       </Card>
     </section>

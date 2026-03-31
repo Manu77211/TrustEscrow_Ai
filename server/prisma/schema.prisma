@@ -42,9 +42,14 @@ enum SubmissionKind {
   FINAL
 }
 
+enum SubmissionStatus {
+  SUBMITTED
+  VALIDATED
+  REJECTED
+}
+
 enum ValidationDecision {
-  PENDING
-  RELEASED
+  APPROVED
   DISPUTED
 }
 
@@ -93,6 +98,7 @@ model Project {
   freelancer         User?         @relation("FreelancerProjects", fields: [freelancerId], references: [id])
   milestones         Milestone[]
   messages           Message[]
+  validationCriteria ValidationCriteria[]
   validationReports  ValidationReport[]
   applications       ProjectApplication[]
 }
@@ -109,6 +115,7 @@ model Milestone {
   project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   submissions Submission[]
   transactions Transaction[]
+  validationCriteria ValidationCriteria[]
   validationReports ValidationReport[]
 }
 
@@ -141,25 +148,41 @@ model Submission {
   fileUrl      String?
   notes        String?
   kind         SubmissionKind @default(FINAL)
+  status       SubmissionStatus @default(SUBMITTED)
+  clientRating Float?
   createdAt    DateTime       @default(now())
   milestone    Milestone      @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
   freelancer   User           @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+  validationReport ValidationReport?
 }
 
 model ValidationReport {
   id             String             @id @default(cuid())
+  submissionId   String             @unique
   projectId      String
   milestoneId    String?
   aiScore        Float              @default(0)
   clientRating   Float              @default(0)
-  timelinessScore Float             @default(0)
+  systemScore    Float              @default(0)
   finalScore     Float              @default(0)
-  decision       ValidationDecision @default(PENDING)
+  decision       ValidationDecision
   explanation    String?
-  reportJson     Json?
+  breakdown      Json?
   createdAt      DateTime           @default(now())
+  submission     Submission         @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   milestone      Milestone?         @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+}
+
+model ValidationCriteria {
+  id         String   @id @default(cuid())
+  projectId  String
+  milestoneId String?
+  type       WorkType
+  rules      Json
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone  Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
 }
 
 model ProjectApplication {

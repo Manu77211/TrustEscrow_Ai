@@ -1,6 +1,148 @@
 import { prisma } from "../../lib/prisma.js";
 import { CreateSubmissionInput } from "./submissions.schema.js";
 
+const validationQueue: string[] = [];
+let processingQueue = false;
+
+function inferTimelinessScore(submissionCreatedAt: Date, milestoneCreatedAt: Date) {
+  const diffMs = submissionCreatedAt.getTime() - milestoneCreatedAt.getTime();
+  const days = diffMs / (1000 * 60 * 60 * 24);
+  return days <= 7 ? 100 : 60;
+}
+
+function structuredValidationBreakdown(notes: string | null, rules: Record<string, unknown>) {
+  const text = (notes ?? "").toLowerCase();
+  const keywords = ["test", "result", "output", "complete", "done"];
+  const passed = keywords.filter((item) => text.includes(item)).length;
+  const failed = Math.max(0, 10 - passed);
+  const aiScore = Math.max(40, Math.min(95, 50 + passed * 5));
+
+  return {
+    aiScore,
+    breakdown: {
+      mode: "STRUCTURED",
+      testsPassed: passed,
+      testsFailed: failed,
+      rules,
+    },
+  };
+}
+
+function creativeValidationBreakdown(notes: string | null, rules: Record<string, unknown>) {
+  const text = (notes ?? "").toLowerCase();
+  const mustInclude = Array.isArray(rules.mustInclude)
+    ? (rules.mustInclude as unknown[]).filter((item): item is string => typeof item === "string")
+    : [];
+
+  const elementsPresent = mustInclude.filter((item) => text.includes(item.toLowerCase()));
+  const missingElements = mustInclude.filter((item) => !elementsPresent.includes(item));
+  const completenessScore = mustInclude.length === 0 ? 75 : Math.round((elementsPresent.length / mustInclude.length) * 100);
+  const qualityScore = Math.max(55, Math.min(95, 65 + elementsPresent.length * 8 - missingElements.length * 5));
+  const aiScore = Math.round((qualityScore * 0.6 + completenessScore * 0.4));
+
+  return {
+    aiScore,
+    breakdown: {
+      mode: "CREATIVE",
+      durationMatch: true,
+      elementsPresent,
+      missingElements,
+      qualityScore,
+      completenessScore,
+      rules,
+    },
+  };
+}
+
+export function calculateFinalScore(aiScore: number, clientRating: number, systemScore: number) {
+  return Number((aiScore * 0.4 + clientRating * 0.4 + systemScore * 0.2).toFixed(2));
+}
+
+async function processValidationQueue() {
+  if (processingQueue) {
+    return;
+  }
+
+  processingQueue = true;
+  while (validationQueue.length > 0) {
+    const submissionId = validationQueue.shift();
+    if (!submissionId) {
+      continue;
+    }
+
+    try {
+      await validateSubmission(submissionId);
+    } catch {
+      await prisma.submission.update({
+        where: { id: submissionId },
+        data: { status: "REJECTED" },
+      });
+    }
+  }
+  processingQueue = false;
+}
+
+function enqueueValidation(submissionId: string) {
+  validationQueue.push(submissionId);
+  setTimeout(() => {
+    void processValidationQueue();
+  }, 0);
+}
+
+export async function validateSubmission(submissionId: string) {
+  const submission = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    include: {
+      milestone: {
+        include: {
+          project: {
+            include: {
+              validationCriteria: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!submission) {
+    throw new Error("Submission not found");
+  }
+
+  const project = submission.milestone.project;
+
+  let criteria = project.validationCriteria.find((item: { milestoneId: string | null }) => item.milestoneId === submission.milestoneId)
+    ?? project.validationCriteria.find((item: { milestoneId: string | null }) => item.milestoneId === null);
+
+  if (!criteria) {
+    criteria = await prisma.validationCriteria.create({
+      data: {
+        projectId: project.id,
+        milestoneId: submission.milestoneId,
+        type: project.workType,
+        rules: {
+          generatedFallback: true,
+          checks: ["requirement alignment", "completeness", "quality"],
+        },
+      },
+    });
+  }
+
+  const rules = (criteria.rules ?? {}) as Record<string, unknown>;
+  const evaluated = criteria.type === "STRUCTURED"
+    ? structuredValidationBreakdown(submission.notes, rules)
+    : creativeValidationBreakdown(submission.notes, rules);
+
+  await prisma.submission.update({
+    where: { id: submissionId },
+    data: {
+      status: "VALIDATED",
+    },
+  });
+
+  return evaluated;
+}
+
 export async function approveProjectDraft(projectId: string, clientId: string) {
   const project = await prisma.project.findFirst({
     where: { id: projectId, clientId },
@@ -26,7 +168,7 @@ export async function createSubmissionForMilestone(
   projectId: string,
   milestoneId: string,
   freelancerId: string,
-  input: CreateSubmissionInput,
+  input: { fileUrl?: string; notes?: string },
 ) {
   const project = await prisma.project.findFirst({
     where: { id: projectId, freelancerId },
@@ -46,60 +188,195 @@ export async function createSubmissionForMilestone(
     throw new Error("Milestone not found for this project");
   }
 
-  if (input.kind === "FINAL" && !project.draftApproved) {
-    throw new Error("Final submission locked until client approves draft");
-  }
-
   const submission = await prisma.submission.create({
     data: {
       milestoneId,
       freelancerId,
       fileUrl: input.fileUrl && input.fileUrl.trim() ? input.fileUrl.trim() : null,
       notes: input.notes && input.notes.trim() ? input.notes.trim() : null,
-      kind: input.kind,
+      kind: "FINAL",
+      status: "SUBMITTED",
     },
   });
 
   await prisma.milestone.update({
     where: { id: milestoneId },
     data: {
-      status: input.kind === "FINAL" ? "APPROVED" : "SUBMITTED",
+      status: "SUBMITTED",
     },
   });
 
-  let validationReport = null;
+  enqueueValidation(submission.id);
 
-  if (input.kind === "FINAL") {
-    const aiScore = submission.fileUrl ? 78 : 58;
-    const clientRating = 60;
-    const timelinessScore = 70;
-    const finalScore = Number((0.4 * aiScore + 0.4 * clientRating + 0.2 * timelinessScore).toFixed(2));
-    const decision = finalScore >= 70 ? "RELEASED" : "DISPUTED";
+  return { submission, validationReport: null };
+}
 
-    validationReport = await prisma.validationReport.create({
-      data: {
-        projectId,
-        milestoneId,
-        aiScore,
-        clientRating,
-        timelinessScore,
-        finalScore,
-        decision,
-        explanation:
-          decision === "RELEASED"
-            ? "Basic validation passed threshold. Escrow release can proceed."
-            : "Basic validation did not meet threshold. Dispute review recommended.",
-        reportJson: {
-          mode: "basic-phase6-starter",
-          signalWeights: {
-            aiScore: 0.4,
-            clientRating: 0.4,
-            timelinessScore: 0.2,
+export async function createSubmission(freelancerId: string, input: CreateSubmissionInput) {
+  const milestone = await prisma.milestone.findUnique({
+    where: { id: input.milestoneId },
+    include: {
+      project: {
+        select: { id: true, freelancerId: true },
+      },
+    },
+  });
+
+  if (!milestone) {
+    throw new Error("Milestone not found");
+  }
+
+  if (milestone.project.freelancerId !== freelancerId) {
+    throw new Error("Only assigned freelancer can submit this milestone");
+  }
+
+  const submission = await prisma.submission.create({
+    data: {
+      milestoneId: input.milestoneId,
+      freelancerId,
+      fileUrl: input.fileUrl && input.fileUrl.trim() ? input.fileUrl.trim() : null,
+      notes: input.notes && input.notes.trim() ? input.notes.trim() : null,
+      kind: "FINAL",
+      status: "SUBMITTED",
+    },
+  });
+
+  await prisma.milestone.update({
+    where: { id: input.milestoneId },
+    data: { status: "SUBMITTED" },
+  });
+
+  enqueueValidation(submission.id);
+
+  return submission;
+}
+
+export async function rateSubmission(submissionId: string, clientId: string, rating: number) {
+  const submission = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    include: {
+      milestone: {
+        include: {
+          project: {
+            include: {
+              freelancer: {
+                select: { id: true },
+              },
+              validationCriteria: true,
+            },
           },
         },
       },
+    },
+  });
+
+  if (!submission) {
+    throw new Error("Submission not found");
+  }
+
+  const project = submission.milestone.project;
+  if (project.clientId !== clientId) {
+    throw new Error("Only project owner can rate submission");
+  }
+
+  if (submission.status !== "VALIDATED") {
+    throw new Error("Submission is still being validated");
+  }
+
+  const criteria = project.validationCriteria.find((item: { milestoneId: string | null }) => item.milestoneId === submission.milestoneId)
+    ?? project.validationCriteria.find((item: { milestoneId: string | null }) => item.milestoneId === null);
+
+  const rules = (criteria?.rules ?? {}) as Record<string, unknown>;
+  const evaluated = criteria?.type === "STRUCTURED"
+    ? structuredValidationBreakdown(submission.notes, rules)
+    : creativeValidationBreakdown(submission.notes, rules);
+
+  const systemScore = inferTimelinessScore(submission.createdAt, submission.milestone.createdAt);
+  const finalScore = calculateFinalScore(evaluated.aiScore, rating, systemScore);
+  const decision = finalScore >= 60 ? "APPROVED" : "DISPUTED";
+
+  const report = await prisma.validationReport.upsert({
+    where: { submissionId },
+    create: {
+      submissionId,
+      projectId: project.id,
+      milestoneId: submission.milestoneId,
+      aiScore: evaluated.aiScore,
+      clientRating: rating,
+      systemScore,
+      finalScore,
+      decision,
+      breakdown: evaluated.breakdown as any,
+      explanation:
+        decision === "APPROVED"
+          ? "Submission meets hybrid threshold. Escrow release approved."
+          : "Submission below hybrid threshold. Escrow remains locked and dispute path is recommended.",
+    },
+    update: {
+      aiScore: evaluated.aiScore,
+      clientRating: rating,
+      systemScore,
+      finalScore,
+      decision,
+      breakdown: evaluated.breakdown as any,
+      explanation:
+        decision === "APPROVED"
+          ? "Submission meets hybrid threshold. Escrow release approved."
+          : "Submission below hybrid threshold. Escrow remains locked and dispute path is recommended.",
+    },
+  });
+
+  await prisma.submission.update({
+    where: { id: submissionId },
+    data: { clientRating: rating },
+  });
+
+  if (decision === "APPROVED" && project.freelancerId) {
+    await prisma.$transaction([
+      prisma.milestone.update({
+        where: { id: submission.milestoneId },
+        data: { status: "APPROVED" },
+      }),
+      prisma.user.update({
+        where: { id: project.freelancerId },
+        data: {
+          walletBalance: {
+            increment: submission.milestone.amount,
+          },
+        },
+      }),
+      prisma.transaction.create({
+        data: {
+          userId: project.freelancerId,
+          milestoneId: submission.milestoneId,
+          amount: submission.milestone.amount,
+          type: "RELEASED",
+        },
+      }),
+    ]);
+
+    const remainingUnapproved = await prisma.milestone.count({
+      where: {
+        projectId: project.id,
+        status: {
+          not: "APPROVED",
+        },
+      },
+    });
+
+    if (remainingUnapproved === 0) {
+      await prisma.project.update({
+        where: { id: project.id },
+        data: { status: "COMPLETED" },
+      });
+    }
+  }
+
+  if (decision === "DISPUTED") {
+    await prisma.project.update({
+      where: { id: project.id },
+      data: { status: "DISPUTED" },
     });
   }
 
-  return { submission, validationReport };
+  return report;
 }

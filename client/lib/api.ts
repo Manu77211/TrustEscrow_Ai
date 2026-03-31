@@ -324,6 +324,43 @@ export async function createMilestoneSubmissionRequest(
   return response.json();
 }
 
+export async function createSubmissionRequest(
+  token: string,
+  payload: { milestoneId: string; fileUrl?: string; notes?: string },
+) {
+  const response = await safeFetch(`${API_BASE_URL}/submissions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response, "Failed to submit work"));
+  }
+
+  return response.json();
+}
+
+export async function rateSubmissionRequest(token: string, submissionId: string, rating: number) {
+  const response = await safeFetch(`${API_BASE_URL}/submissions/${submissionId}/rate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ rating }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response, "Failed to rate submission"));
+  }
+
+  return response.json();
+}
+
 export interface ProjectMessage {
   id: string;
   projectId: string;
