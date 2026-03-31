@@ -172,6 +172,40 @@ npm run typecheck
 - Server: http://localhost:4000/api
 - Client: http://localhost:3000
 
+## Frontend Route Architecture (Current)
+
+Public routes:
+- /
+- /login
+- /register
+
+Protected routes:
+- /dashboard
+- /dashboard/projects
+- /dashboard/projects/:id
+- /dashboard/chat/:projectId
+- /dashboard/freelancers (CLIENT only)
+- /dashboard/profile
+- /dashboard/wallet
+
+Role-based UX behavior:
+- Shared app shell and route tree for both CLIENT and FREELANCER.
+- Sidebar and labels adapt by role (Projects vs My Work).
+- Freelancer discovery route is blocked for freelancers and redirects to dashboard.
+- Project detail actions adapt by role:
+	- CLIENT: assign freelancer, approve draft, release decision.
+	- FREELANCER: submit draft/final work, view validation outcomes.
+
+## Latest Update: Explicit Assignment Visibility
+
+- Project assignment is now explicitly timestamped in database via `Project.assignedAt`.
+- On freelancer dashboard cards, assignment context shows: assigned client + date.
+- On project detail page, assignment record timestamp is displayed when a freelancer is assigned.
+- Assignment still uses `freelancerId` relation, now with clearer audit visibility for trust and operations.
+
+Windows note for Prisma on local machines:
+- If `npx prisma generate` fails with `EPERM ... query_engine-windows.dll.node`, stop running Node processes and run generate again.
+
 ## Implemented APIs (Phase 1)
 
 ### Auth

@@ -2,6 +2,9 @@
 
 import { motion } from "framer-motion";
 import { ReactNode } from "react";
+import { Slot } from "@radix-ui/react-slot";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { X } from "lucide-react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost";
 
@@ -9,10 +12,12 @@ export function Button({
   children,
   className = "",
   variant = "primary",
+  asChild = false,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   children: ReactNode;
   variant?: ButtonVariant;
+  asChild?: boolean;
 }) {
   const styles: Record<ButtonVariant, string> = {
     primary:
@@ -21,13 +26,15 @@ export function Button({
     ghost: "bg-transparent text-slate-300 hover:bg-slate-800/70",
   };
 
+  const Comp = asChild ? Slot : "button";
+
   return (
-    <button
+    <Comp
       {...props}
       className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60 ${styles[variant]} ${className}`}
     >
       {children}
-    </button>
+    </Comp>
   );
 }
 
@@ -88,3 +95,43 @@ export function PageIntro({ title, subtitle }: { title: string; subtitle: string
     </motion.div>
   );
 }
+
+export function ProgressBar({ value }: { value: number }) {
+  const safeValue = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+      <div
+        className="h-full rounded-full bg-[linear-gradient(90deg,#0ea5e9,#22d3ee)] transition-all"
+        style={{ width: `${safeValue}%` }}
+      />
+    </div>
+  );
+}
+
+export function Dialog({ children, ...props }: DialogPrimitive.DialogProps & { children: ReactNode }) {
+  return <DialogPrimitive.Root {...props}>{children}</DialogPrimitive.Root>;
+}
+
+export const DialogTrigger = DialogPrimitive.Trigger;
+
+export function DialogContent({ children }: { children: ReactNode }) {
+  return (
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm" />
+      <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[95vw] max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl shadow-black/40">
+        {children}
+        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100" aria-label="Close">
+          <X size={16} />
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  );
+}
+
+export function DialogHeader({ children }: { children: ReactNode }) {
+  return <div className="mb-4 space-y-1">{children}</div>;
+}
+
+export const DialogTitle = DialogPrimitive.Title;
+
+export const DialogDescription = DialogPrimitive.Description;

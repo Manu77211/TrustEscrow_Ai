@@ -48,6 +48,12 @@ enum ValidationDecision {
   DISPUTED
 }
 
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String
@@ -67,6 +73,7 @@ model User {
   messagesSent  Message[]
   transactions  Transaction[]
   submissions   Submission[]
+  projectApplications ProjectApplication[]
 }
 
 model Project {
@@ -77,6 +84,7 @@ model Project {
   workType           WorkType      @default(STRUCTURED)
   clientId           String
   freelancerId       String?
+  assignedAt         DateTime?
   parsedRequirements Json?
   draftApproved      Boolean       @default(false)
   createdAt          DateTime      @default(now())
@@ -86,6 +94,7 @@ model Project {
   milestones         Milestone[]
   messages           Message[]
   validationReports  ValidationReport[]
+  applications       ProjectApplication[]
 }
 
 model Milestone {
@@ -151,4 +160,18 @@ model ValidationReport {
   createdAt      DateTime           @default(now())
   project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   milestone      Milestone?         @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+}
+
+model ProjectApplication {
+  id           String            @id @default(cuid())
+  projectId    String
+  freelancerId String
+  message      String?
+  status       ApplicationStatus @default(PENDING)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  freelancer   User              @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, freelancerId])
 }

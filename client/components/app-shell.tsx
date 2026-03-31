@@ -9,12 +9,16 @@ import { Button } from "./ui/primitives";
 import { FooterSectionBlock } from "./ui/footer-section";
 
 const clientLinks = [
+  { href: "/", label: "Home" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/freelancers", label: "Freelancers" },
   { href: "/projects/create", label: "Create Project" },
 ];
 
-const freelancerLinks = [{ href: "/dashboard", label: "Dashboard" }];
+const freelancerLinks = [
+  { href: "/", label: "Home" },
+  { href: "/dashboard", label: "My Assignments" },
+];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -67,14 +71,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {user ? (
               <>
                 <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-300">
-                  {user.role}
+                  {user.role === "CLIENT" ? "Client" : "Freelancer"}
                 </span>
                 <Button variant="ghost" onClick={logout}>Logout</Button>
               </>
             ) : (
               <>
-                <Link href="/login"><Button variant="ghost">Login</Button></Link>
-                <Link href="/register"><Button>Register</Button></Link>
+                <Button asChild variant="ghost"><Link href="/login">Login</Link></Button>
+                <Button asChild><Link href="/register">Register</Link></Button>
               </>
             )}
           </div>
