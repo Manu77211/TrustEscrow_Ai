@@ -4,6 +4,9 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "../../store/auth-store";
+import { AppShell } from "../../components/app-shell";
+import { Button, Card, Input, PageIntro, Select, Textarea } from "../../components/ui/primitives";
+import { motion } from "framer-motion";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -42,86 +45,83 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-lg items-center px-6 py-12">
-      <div className="w-full rounded-xl border border-black/10 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">Create Account</h1>
-        <p className="mt-2 text-sm text-black/60">Join as a client or freelancer.</p>
+    <AppShell>
+      <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2 md:items-start">
+        <PageIntro
+          title="Create Your TrustEscrow Profile"
+          subtitle="Register as client or freelancer to start milestone-based collaboration with objective validation."
+        />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <Card>
+            <div className="mb-5 rounded-xl border border-slate-700 bg-slate-900/60 p-3 text-xs text-slate-300">
+              Clients create projects and assign freelancers. Freelancers deliver evidence-backed submissions for milestone release.
+            </div>
+            <form className="space-y-4" onSubmit={onSubmit}>
+              <Input
+                type="text"
+                required
+                placeholder="Full name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
 
-        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-          <input
-            type="text"
-            required
-            placeholder="Full name"
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
+              <Input
+                type="email"
+                required
+                placeholder="Email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
 
-          <input
-            type="email"
-            required
-            placeholder="Email"
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
+              <Input
+                type="password"
+                required
+                placeholder="Password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
 
-          <input
-            type="password"
-            required
-            placeholder="Password"
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+              <Select
+                value={role}
+                onChange={(event) => setRole(event.target.value as "CLIENT" | "FREELANCER")}
+              >
+                <option value="CLIENT">Client</option>
+                <option value="FREELANCER">Freelancer</option>
+              </Select>
 
-          <select
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={role}
-            onChange={(event) => setRole(event.target.value as "CLIENT" | "FREELANCER")}
-          >
-            <option value="CLIENT">Client</option>
-            <option value="FREELANCER">Freelancer</option>
-          </select>
+              <Input
+                type="text"
+                placeholder="Skills (comma-separated, e.g. react,node,ui)"
+                value={skills}
+                onChange={(event) => setSkills(event.target.value)}
+              />
 
-          <input
-            type="text"
-            placeholder="Skills (comma-separated)"
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={skills}
-            onChange={(event) => setSkills(event.target.value)}
-          />
+              <Textarea
+                placeholder="Experience summary (domain, years, delivery strengths)"
+                value={experience}
+                onChange={(event) => setExperience(event.target.value)}
+              />
 
-          <textarea
-            placeholder="Experience summary"
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={experience}
-            onChange={(event) => setExperience(event.target.value)}
-          />
+              <Input
+                type="text"
+                placeholder="Portfolio URLs (comma-separated)"
+                value={portfolio}
+                onChange={(event) => setPortfolio(event.target.value)}
+              />
 
-          <input
-            type="text"
-            placeholder="Portfolio URLs (comma-separated)"
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={portfolio}
-            onChange={(event) => setPortfolio(event.target.value)}
-          />
+              {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+              <Button type="submit" disabled={loading} className="w-full">
+                {loading ? "Creating..." : "Create account"}
+              </Button>
+            </form>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-black px-4 py-2 text-white disabled:opacity-50"
-          >
-            {loading ? "Creating..." : "Create account"}
-          </button>
-        </form>
-
-        <p className="mt-4 text-sm text-black/70">
-          Already have an account? <Link className="underline" href="/login">Login</Link>
-        </p>
+            <p className="mt-4 text-sm text-slate-600">
+              Already have an account? <Link className="font-medium text-sky-300 hover:underline" href="/login">Login</Link>
+            </p>
+          </Card>
+        </motion.div>
       </div>
-    </main>
+    </AppShell>
   );
 }

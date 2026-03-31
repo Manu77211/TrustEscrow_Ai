@@ -4,6 +4,9 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "../../store/auth-store";
+import { AppShell } from "../../components/app-shell";
+import { Button, Card, Input, PageIntro } from "../../components/ui/primitives";
+import { motion } from "framer-motion";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,51 +25,53 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6 py-12">
-      <div className="w-full rounded-xl border border-black/10 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">Login</h1>
-        <p className="mt-2 text-sm text-black/60">Access your TrustEscrow AI account.</p>
+    <AppShell>
+      <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2 md:items-start">
+        <PageIntro
+          title="Sign In To Your Trust Workspace"
+          subtitle="Access escrow status, project milestones, and validation history from one secure dashboard."
+        />
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <Card>
+            <div className="mb-5 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-300">
+              Use your registered account to continue project funding, assignment, and delivery review.
+            </div>
+            <form className="space-y-4" onSubmit={onSubmit}>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-300" htmlFor="email">Email</label>
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </div>
 
-        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-          <label className="block text-sm font-medium" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-300" htmlFor="password">Password</label>
+                <Input
+                  id="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </div>
 
-          <label className="block text-sm font-medium" htmlFor="password">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            required
-            className="w-full rounded-md border border-black/15 px-3 py-2"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+              {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+              <Button type="submit" disabled={loading} className="w-full">
+                {loading ? "Signing in..." : "Sign in"}
+              </Button>
+            </form>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-black px-4 py-2 text-white disabled:opacity-50"
-          >
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-
-        <p className="mt-4 text-sm text-black/70">
-          New here? <Link className="underline" href="/register">Create account</Link>
-        </p>
+            <p className="mt-4 text-sm text-slate-600">
+              New here? <Link className="font-medium text-sky-300 hover:underline" href="/register">Create account</Link>
+            </p>
+          </Card>
+        </motion.div>
       </div>
-    </main>
+    </AppShell>
   );
 }

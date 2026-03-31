@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserRole {
@@ -12,18 +13,142 @@ enum UserRole {
   FREELANCER
 }
 
+enum ProjectStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  DISPUTED
+}
+
+enum MilestoneStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+}
+
+enum WorkType {
+  STRUCTURED
+  CREATIVE
+}
+
+enum TransactionType {
+  DEPOSIT
+  LOCKED
+  RELEASED
+}
+
+enum SubmissionKind {
+  DRAFT
+  FINAL
+}
+
+enum ValidationDecision {
+  PENDING
+  RELEASED
+  DISPUTED
+}
+
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  password     String
-  role         UserRole
-  skills       String[] @default([])
-  rating       Float    @default(0)
-  trustScore   Float    @default(50)
-  experience   String   @default("")
-  portfolio    String[] @default([])
-  walletBalance Float   @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String
+  role          UserRole
+  skills        String[]  @default([])
+  rating        Float     @default(0)
+  trustScore    Float     @default(50)
+  experience    String    @default("")
+  portfolio     String[]  @default([])
+  walletBalance Float     @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  clientProjects Project[] @relation("ClientProjects")
+  freelancerProjects Project[] @relation("FreelancerProjects")
+  messagesSent  Message[]
+  transactions  Transaction[]
+  submissions   Submission[]
+}
+
+model Project {
+  id                 String        @id @default(cuid())
+  title              String
+  description        String
+  status             ProjectStatus @default(OPEN)
+  workType           WorkType      @default(STRUCTURED)
+  clientId           String
+  freelancerId       String?
+  parsedRequirements Json?
+  draftApproved      Boolean       @default(false)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  client             User          @relation("ClientProjects", fields: [clientId], references: [id])
+  freelancer         User?         @relation("FreelancerProjects", fields: [freelancerId], references: [id])
+  milestones         Milestone[]
+  messages           Message[]
+  validationReports  ValidationReport[]
+}
+
+model Milestone {
+  id          String          @id @default(cuid())
+  projectId   String
+  title       String
+  description String
+  amount      Float
+  status      MilestoneStatus @default(PENDING)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+  transactions Transaction[]
+  validationReports ValidationReport[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  projectId String
+  senderId  String
+  content   String
+  fileUrl   String?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  userId      String
+  milestoneId String?
+  amount      Float
+  type        TransactionType
+  createdAt   DateTime        @default(now())
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  milestone   Milestone?      @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+}
+
+model Submission {
+  id           String         @id @default(cuid())
+  milestoneId  String
+  freelancerId String
+  fileUrl      String?
+  notes        String?
+  kind         SubmissionKind @default(FINAL)
+  createdAt    DateTime       @default(now())
+  milestone    Milestone      @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  freelancer   User           @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+}
+
+model ValidationReport {
+  id             String             @id @default(cuid())
+  projectId      String
+  milestoneId    String?
+  aiScore        Float              @default(0)
+  clientRating   Float              @default(0)
+  timelinessScore Float             @default(0)
+  finalScore     Float              @default(0)
+  decision       ValidationDecision @default(PENDING)
+  explanation    String?
+  reportJson     Json?
+  createdAt      DateTime           @default(now())
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone      Milestone?         @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
 }

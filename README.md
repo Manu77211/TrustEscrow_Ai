@@ -128,6 +128,14 @@ Server:
 - Copy server/.env.example to server/.env
 - Update values as needed
 
+Neon recommended setup for Prisma:
+- DATABASE_URL: Neon pooled connection (runtime)
+- DIRECT_URL: Neon direct connection (migrations)
+
+Why this matters:
+- Prisma with pooled-only URLs can fail on migrations in some setups.
+- Using DIRECT_URL avoids those migration issues while keeping pooled runtime performance.
+
 Client:
 - Copy client/.env.example to client/.env.local
 
@@ -178,6 +186,38 @@ npm run typecheck
 ### Health
 
 - GET /api/health
+
+## Implemented APIs (Phase 2 + Phase 3 baseline)
+
+### Freelancer Discovery
+
+- GET /api/freelancers?skills=react,node&rating=4
+
+### Projects
+
+- GET /api/projects (protected)
+- POST /api/projects (protected, CLIENT only)
+- GET /api/projects/:projectId (protected)
+- POST /api/projects/:projectId/assign (protected, CLIENT only)
+
+Project create payload:
+
+```json
+{
+	"title": "Landing page redesign",
+	"description": "Need a modern landing page for fintech product...",
+	"workType": "STRUCTURED"
+}
+```
+
+Behavior:
+- On project creation, parseRequirements(description) runs.
+- Parsed milestones, deliverables, and validation criteria are stored.
+- Milestones are auto-created from parser output.
+
+Current parser mode:
+- Deterministic fallback parser (MVP-safe).
+- Structured to swap with OpenAI integration in upcoming phase.
 
 ## Auth Request Examples
 
@@ -265,6 +305,38 @@ Authorization: Bearer <jwt-token>
 9. Hybrid score is calculated.
 10. Payment is released or dispute is triggered.
 
+## Visual Frontend Flow (Available Now)
+
+- /dashboard: role-aware overview and project list
+- /freelancers: filter and browse freelancer cards
+- /projects/create: create project and trigger AI requirement parsing
+- /projects/[id]: view parsed requirements, milestones, and assign freelancer
+
+Auth pages:
+- /login
+- /register
+
+## Frontend UI Architecture (Current)
+
+- Shared shell:
+	- App-wide layout uses reusable AppShell with responsive navbar + footer.
+	- Role-aware navigation hides client-only actions for freelancers.
+- Reusable UI primitives:
+	- client/components/ui/primitives.tsx provides Button, Card, Input, Textarea, Select, Pill, and PageIntro.
+	- New route updates consume these primitives for consistent spacing, typography, and states.
+- Motion and transitions:
+	- Route sections use Framer Motion entrance transitions.
+	- Global styles include smoother color/background transitions and clearer text contrast.
+
+Polished routes now aligned to shared UI pattern:
+- / (landing)
+- /login
+- /register
+- /dashboard
+- /freelancers
+- /projects/create
+- /projects/[id]
+
 ## Build Strategy
 
 Execution is phase-based with strict acceptance checks at each phase.
@@ -286,3 +358,11 @@ Detailed phase plan is documented in BUILDING_PHASE_PLAN.md.
 	- Functional JWT register/login APIs.
 	- Protected /api/users/me route.
 	- Next.js login/register pages with Zustand auth state.
+- Phase 2 baseline delivered:
+	- Freelancer discovery API with skill/rating filters.
+	- Visual discovery page wired to real backend.
+- Phase 3 baseline delivered:
+	- Project creation API with requirement parser service.
+	- Milestones auto-generated and persisted.
+	- Project detail page with milestone and parser report view.
+	- Client-side freelancer assignment flow.
