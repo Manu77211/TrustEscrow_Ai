@@ -10,6 +10,7 @@ import {
   getProjectRequest,
   listProjectApplicantsRequest,
   listFreelancersRequest,
+  requestSubmissionChangesRequest,
   rateSubmissionRequest,
   selectProjectApplicantRequest,
 } from "../../../../lib/api";
@@ -34,6 +35,7 @@ export default function DashboardProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [ratingInputs, setRatingInputs] = useState<Record<string, string>>({});
+  const [feedbackInputs, setFeedbackInputs] = useState<Record<string, string>>({});
   const [milestoneForms, setMilestoneForms] = useState<Record<string, MilestoneFormState>>({});
   const [validationResult, setValidationResult] = useState<any>(null);
   const [paymentStatus, setPaymentStatus] = useState<"LOCKED" | "RELEASED" | "DISPUTED">("LOCKED");
@@ -77,6 +79,15 @@ export default function DashboardProjectDetailPage() {
         return acc;
       }, {});
       setRatingInputs(initialRatings);
+
+      const initialFeedback = (data.milestones ?? []).reduce((acc: Record<string, string>, milestone: any) => {
+        const latestSubmission = milestone.submissions?.[0];
+        if (latestSubmission?.id) {
+          acc[latestSubmission.id] = latestSubmission.clientFeedback ?? "";
+        }
+        return acc;
+      }, {});
+      setFeedbackInputs(initialFeedback);
 
       if (data.validationReports?.length) {
         setValidationResult(data.validationReports[0]);
@@ -219,6 +230,30 @@ export default function DashboardProjectDetailPage() {
     }
   }
 
+  async function onRequestChanges(submissionId: string) {
+    if (!token) {
+      return;
+    }
+
+    const feedback = (feedbackInputs[submissionId] ?? "").trim();
+    if (feedback.length < 5) {
+      setError("Please add at least 5 characters of feedback before requesting changes");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await requestSubmissionChangesRequest(token, submissionId, feedback);
+      await loadProject();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) {
     return <p className="text-slate-400">Loading project...</p>;
   }
@@ -269,6 +304,13 @@ export default function DashboardProjectDetailPage() {
                     <p className="text-xs text-slate-400">Rating {application.freelancer?.rating} | Trust {application.freelancer?.trustScore}</p>
                     {application.message ? (
                       <p className="mt-1 text-xs text-slate-500">"{application.message}"</p>
+                    ) : null}
+                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                      {application.proposedAmount ? <span>Budget ${Number(application.proposedAmount).toFixed(2)}</span> : null}
+                      {application.estimatedDays ? <span>Timeline {application.estimatedDays} days</span> : null}
+                    </div>
+                    {application.deliverables ? (
+                      <p className="mt-1 text-xs text-slate-500">Deliverables: {application.deliverables}</p>
                     ) : null}
                   </div>
                   <Button onClick={() => void onSelectApplicant(application.id)} disabled={saving || Boolean(project.freelancer)}>
@@ -358,6 +400,25 @@ export default function DashboardProjectDetailPage() {
                   <p className="text-xs text-slate-400">
                     Latest submission status: {milestone.submissions[0].status}
                   </p>
+                  {milestone.submissions[0].fileUrl ? (
+                    <p className="text-xs text-slate-400">
+                      File: <a className="text-sky-300 underline" href={milestone.submissions[0].fileUrl} target="_blank" rel="noreferrer">Open submission artifact</a>
+                    </p>
+                  ) : null}
+                  {milestone.submissions[0].notes ? (
+                    <p className="text-xs text-slate-400">Notes: {milestone.submissions[0].notes}</p>
+                  ) : null}
+                  <Textarea
+                    rows={2}
+                    placeholder="Comment and request changes"
+                    value={feedbackInputs[milestone.submissions[0].id] ?? ""}
+                    onChange={(event) =>
+                      setFeedbackInputs((prev) => ({
+                        ...prev,
+                        [milestone.submissions[0].id]: event.target.value,
+                      }))
+                    }
+                  />
                   <div className="flex flex-wrap items-center gap-2">
                     <Input
                       type="number"
@@ -377,7 +438,22 @@ export default function DashboardProjectDetailPage() {
                     >
                       {saving ? "Scoring..." : "Rate + Decide"}
                     </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void onRequestChanges(milestone.submissions[0].id)}
+                      disabled={saving}
+                    >
+                      {saving ? "Updating..." : "Request Changes"}
+                    </Button>
                   </div>
+                </div>
+              ) : null}
+
+              {user?.role === "FREELANCER" && milestone.submissions?.[0]?.clientFeedback ? (
+                <div className="mt-3 rounded-lg border border-amber-700/50 bg-amber-900/20 p-3">
+                  <p className="text-xs text-amber-200">
+                    Client requested changes: {milestone.submissions[0].clientFeedback}
+                  </p>
                 </div>
               ) : null}
             </div>

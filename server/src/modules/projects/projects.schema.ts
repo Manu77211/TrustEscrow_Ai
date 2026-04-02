@@ -17,6 +17,9 @@ export const createProjectMessageSchema = z.object({
 
 export const applyToProjectSchema = z.object({
   message: z.string().trim().max(1000).optional().or(z.literal("")),
+  proposedAmount: z.number().positive().max(1000000).optional(),
+  estimatedDays: z.number().int().min(1).max(365).optional(),
+  deliverables: z.string().trim().max(5000).optional().or(z.literal("")),
 });
 
 export const selectApplicantSchema = z.object({

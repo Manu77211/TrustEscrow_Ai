@@ -45,6 +45,7 @@ enum SubmissionKind {
 enum SubmissionStatus {
   SUBMITTED
   VALIDATED
+  CHANGES_REQUESTED
   REJECTED
 }
 
@@ -57,6 +58,25 @@ enum ApplicationStatus {
   PENDING
   ACCEPTED
   REJECTED
+}
+
+enum ContractCategory {
+  WEB_BUILD
+  API_BACKEND
+  DATA_ML
+  CREATIVE_ASSET
+  MARKETING_CAMPAIGN
+}
+
+enum EvidenceType {
+  ARTIFACT_LINK
+  COMMIT_HASH
+  BUILD_LOG
+  TEST_REPORT
+  SCREENSHOT
+  VIDEO
+  REQUIREMENT_MAPPING
+  METADATA
 }
 
 model User {
@@ -99,6 +119,7 @@ model Project {
   milestones         Milestone[]
   messages           Message[]
   validationCriteria ValidationCriteria[]
+  evaluationContract EvaluationContract?
   validationReports  ValidationReport[]
   applications       ProjectApplication[]
 }
@@ -147,12 +168,15 @@ model Submission {
   freelancerId String
   fileUrl      String?
   notes        String?
+  clientFeedback String?
   kind         SubmissionKind @default(FINAL)
   status       SubmissionStatus @default(SUBMITTED)
   clientRating Float?
   createdAt    DateTime       @default(now())
   milestone    Milestone      @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
   freelancer   User           @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+  evidences    SubmissionEvidence[]
+  evaluationAudits EvaluationRunAudit[]
   validationReport ValidationReport?
 }
 
@@ -166,12 +190,74 @@ model ValidationReport {
   systemScore    Float              @default(0)
   finalScore     Float              @default(0)
   decision       ValidationDecision
+  policyBand     String?
+  requiresHumanReview Boolean       @default(false)
   explanation    String?
   breakdown      Json?
   createdAt      DateTime           @default(now())
   submission     Submission         @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   milestone      Milestone?         @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+}
+
+model RubricTemplate {
+  id              String           @id @default(cuid())
+  name            String
+  category        ContractCategory
+  version         Int              @default(1)
+  criteria        Json
+  hardFailRules   Json
+  weightConfig    Json
+  createdAt       DateTime         @default(now())
+  contracts       EvaluationContract[]
+
+  @@unique([name, version])
+}
+
+model EvaluationContract {
+  id                    String           @id @default(cuid())
+  projectId             String           @unique
+  rubricTemplateId      String?
+  category              ContractCategory
+  requiredOutputs       Json
+  acceptanceCriteria    Json
+  scoringRubric         Json
+  hardFailConditions    Json
+  timeConstraints       Json
+  complianceConstraints Json
+  version               Int              @default(1)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  project               Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rubricTemplate        RubricTemplate?  @relation(fields: [rubricTemplateId], references: [id], onDelete: SetNull)
+  audits                EvaluationRunAudit[]
+}
+
+model SubmissionEvidence {
+  id           String       @id @default(cuid())
+  submissionId String
+  evidenceType EvidenceType
+  value        String
+  metadata     Json?
+  createdAt    DateTime     @default(now())
+  submission   Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+}
+
+model EvaluationRunAudit {
+  id                 String              @id @default(cuid())
+  submissionId       String
+  contractId         String?
+  deterministicScore Float
+  aiScoreA           Float
+  aiScoreB           Float
+  consistencyScore   Float
+  fusionScore        Float
+  policyBand         String
+  requiresHumanReview Boolean           @default(false)
+  decisionTrace      Json
+  createdAt          DateTime            @default(now())
+  submission         Submission          @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  contract           EvaluationContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
 }
 
 model ValidationCriteria {
@@ -190,6 +276,9 @@ model ProjectApplication {
   projectId    String
   freelancerId String
   message      String?
+  proposedAmount Float?
+  estimatedDays Int?
+  deliverables  String?
   status       ApplicationStatus @default(PENDING)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt

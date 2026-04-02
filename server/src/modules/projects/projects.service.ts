@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { parseRequirements } from "../../services/requirement-parser.service.js";
+import { ensureProjectEvaluationContract } from "../../services/evaluation-contract.service.js";
 import { generateValidationCriteria } from "../../services/validation-criteria.service.js";
 import {
   ApplyToProjectInput,
@@ -62,6 +63,13 @@ export async function createProject(clientId: string, input: CreateProjectInput)
     },
   });
 
+  await ensureProjectEvaluationContract({
+    projectId: project.id,
+    title: project.title,
+    description: project.description,
+    workType: project.workType,
+  });
+
   return project;
 }
 
@@ -104,6 +112,7 @@ export async function getProjectById(projectId: string) {
         },
       },
       validationCriteria: true,
+      evaluationContract: true,
       validationReports: {
         orderBy: { createdAt: "desc" },
       },
@@ -132,6 +141,7 @@ export async function getProjectByIdForUser(projectId: string, userId: string, r
         },
       },
       validationCriteria: true,
+      evaluationContract: true,
       validationReports: {
         orderBy: { createdAt: "desc" },
       },
@@ -291,6 +301,9 @@ export async function applyToProject(
       projectId,
       freelancerId,
       message: input.message && input.message.trim() ? input.message.trim() : null,
+      proposedAmount: typeof input.proposedAmount === "number" ? input.proposedAmount : null,
+      estimatedDays: typeof input.estimatedDays === "number" ? input.estimatedDays : null,
+      deliverables: input.deliverables && input.deliverables.trim() ? input.deliverables.trim() : null,
     },
     include: {
       freelancer: {

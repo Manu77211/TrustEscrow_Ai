@@ -4,12 +4,14 @@ import {
   createMilestoneSubmissionSchema,
   createSubmissionSchema,
   draftApprovalSchema,
+  requestChangesSchema,
   rateSubmissionSchema,
 } from "./submissions.schema.js";
 import {
   approveProjectDraft,
   createSubmission,
   createSubmissionForMilestone,
+  requestSubmissionChanges,
   rateSubmission,
 } from "./submissions.service.js";
 
@@ -86,6 +88,24 @@ export async function rateSubmissionHandler(req: AuthenticatedRequest, res: Resp
   try {
     const report = await rateSubmission(String(req.params.id), req.auth.userId, parsed.data.rating);
     return res.status(200).json(report);
+  } catch (error) {
+    return res.status(400).json({ message: (error as Error).message });
+  }
+}
+
+export async function requestChangesHandler(req: AuthenticatedRequest, res: Response) {
+  if (!req.auth?.userId || req.auth.role !== "CLIENT") {
+    return res.status(403).json({ message: "Only clients can request changes" });
+  }
+
+  const parsed = requestChangesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Validation failed", issues: parsed.error.flatten() });
+  }
+
+  try {
+    const submission = await requestSubmissionChanges(String(req.params.id), req.auth.userId, parsed.data.feedback);
+    return res.status(200).json(submission);
   } catch (error) {
     return res.status(400).json({ message: (error as Error).message });
   }

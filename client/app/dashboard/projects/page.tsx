@@ -42,6 +42,12 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [applyingProjectId, setApplyingProjectId] = useState<string | null>(null);
+  const [proposalDrafts, setProposalDrafts] = useState<Record<string, {
+    message: string;
+    proposedAmount: string;
+    estimatedDays: string;
+    deliverables: string;
+  }>>({});
 
   useEffect(() => {
     hydrate();
@@ -58,7 +64,6 @@ export default function ProjectsPage() {
     try {
       const projectList = await listProjectsRequest(token);
       setProjects(projectList);
-
       if (user?.role === "FREELANCER") {
         const discoverList = await discoverOpenProjectsRequest(token);
         setOpenProjects(discoverList);
@@ -175,8 +180,43 @@ export default function ProjectsPage() {
     setError(null);
     setSuccess(null);
     try {
+      const draft = proposalDrafts[projectId] ?? {
+        message: "",
+        proposedAmount: "",
+        estimatedDays: "",
+        deliverables: "",
+      };
+
+      const payload = {
+        message: draft.message.trim(),
+        proposedAmount: draft.proposedAmount.trim() ? Number(draft.proposedAmount) : undefined,
+        estimatedDays: draft.estimatedDays.trim() ? Number(draft.estimatedDays) : undefined,
+        deliverables: draft.deliverables.trim(),
+      };
+
+      if (!payload.message && !payload.deliverables) {
+        setError("Add a short proposal message or deliverables before applying.");
+        setApplyingProjectId(null);
+        return;
+      }
+
+      if (payload.proposedAmount !== undefined && (!Number.isFinite(payload.proposedAmount) || payload.proposedAmount <= 0)) {
+        setError("Proposed amount must be a valid positive number.");
+        setApplyingProjectId(null);
+        return;
+      }
+
+      if (payload.estimatedDays !== undefined && (!Number.isInteger(payload.estimatedDays) || payload.estimatedDays <= 0)) {
+        setError("Estimated days must be a positive whole number.");
+        setApplyingProjectId(null);
+        return;
+      }
+
       await applyToProjectRequest(token, projectId, {
-        message: "Interested in this project. Ready to deliver with milestone clarity.",
+        message: payload.message || undefined,
+        proposedAmount: payload.proposedAmount,
+        estimatedDays: payload.estimatedDays,
+        deliverables: payload.deliverables || undefined,
       });
       await loadProjects();
       setSuccess("Applied to project successfully.");
@@ -225,7 +265,7 @@ export default function ProjectsPage() {
 
       {error ? <p className="text-sm text-rose-400">{error}</p> : null}
       {success ? <p className="text-sm text-emerald-300">{success}</p> : null}
-      {loading ? <p className="text-slate-400">Loading projects...</p> : null}
+        {loading ? <p className="text-slate-400">Loading projects...</p> : null}
 
       {user?.role === "FREELANCER" ? (
         <Card>
@@ -237,6 +277,80 @@ export default function ProjectsPage() {
                 <p className="font-medium text-slate-100">{project.title}</p>
                 <p className="mt-1 text-xs text-slate-400">Client {project.client?.name ?? "Unknown"}</p>
                 <p className="mt-2 text-xs text-slate-500">Applicants: {project._count?.applications ?? 0}</p>
+                {!project.applications?.length ? (
+                  <div className="mt-3 space-y-2">
+                    <Textarea
+                      rows={2}
+                      placeholder="Short proposal message"
+                      value={proposalDrafts[project.id]?.message ?? ""}
+                      onChange={(event) =>
+                        setProposalDrafts((prev) => ({
+                          ...prev,
+                          [project.id]: {
+                            message: event.target.value,
+                            proposedAmount: prev[project.id]?.proposedAmount ?? "",
+                            estimatedDays: prev[project.id]?.estimatedDays ?? "",
+                            deliverables: prev[project.id]?.deliverables ?? "",
+                          },
+                        }))
+                      }
+                    />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        step="0.01"
+                        placeholder="Proposed budget"
+                        value={proposalDrafts[project.id]?.proposedAmount ?? ""}
+                        onChange={(event) =>
+                          setProposalDrafts((prev) => ({
+                            ...prev,
+                            [project.id]: {
+                              message: prev[project.id]?.message ?? "",
+                              proposedAmount: event.target.value,
+                              estimatedDays: prev[project.id]?.estimatedDays ?? "",
+                              deliverables: prev[project.id]?.deliverables ?? "",
+                            },
+                          }))
+                        }
+                      />
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="Estimated days"
+                        value={proposalDrafts[project.id]?.estimatedDays ?? ""}
+                        onChange={(event) =>
+                          setProposalDrafts((prev) => ({
+                            ...prev,
+                            [project.id]: {
+                              message: prev[project.id]?.message ?? "",
+                              proposedAmount: prev[project.id]?.proposedAmount ?? "",
+                              estimatedDays: event.target.value,
+                              deliverables: prev[project.id]?.deliverables ?? "",
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                    <Textarea
+                      rows={2}
+                      placeholder="Deliverables you will provide"
+                      value={proposalDrafts[project.id]?.deliverables ?? ""}
+                      onChange={(event) =>
+                        setProposalDrafts((prev) => ({
+                          ...prev,
+                          [project.id]: {
+                            message: prev[project.id]?.message ?? "",
+                            proposedAmount: prev[project.id]?.proposedAmount ?? "",
+                            estimatedDays: prev[project.id]?.estimatedDays ?? "",
+                            deliverables: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                ) : null}
                 <Button
                   className="mt-3"
                   disabled={Boolean(project.applications?.length) || applyingProjectId === project.id}

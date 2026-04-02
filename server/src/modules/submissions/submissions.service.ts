@@ -1,4 +1,7 @@
 import { prisma } from "../../lib/prisma.js";
+import { runDualModelJudge } from "../../services/ai-judge.service.js";
+import { runDeterministicValidation } from "../../services/deterministic-validator.service.js";
+import { runFusionAndPolicy } from "../../services/fusion-policy.service.js";
 import { CreateSubmissionInput } from "./submissions.schema.js";
 
 const validationQueue: string[] = [];
@@ -168,7 +171,7 @@ export async function createSubmissionForMilestone(
   projectId: string,
   milestoneId: string,
   freelancerId: string,
-  input: { fileUrl?: string; notes?: string },
+  input: { fileUrl?: string; notes?: string; evidenceItems?: Array<{ evidenceType: string; value: string; metadata?: Record<string, unknown> }> },
 ) {
   const project = await prisma.project.findFirst({
     where: { id: projectId, freelancerId },
@@ -196,6 +199,18 @@ export async function createSubmissionForMilestone(
       notes: input.notes && input.notes.trim() ? input.notes.trim() : null,
       kind: "FINAL",
       status: "SUBMITTED",
+      evidences: {
+        create: [
+          ...(input.fileUrl && input.fileUrl.trim()
+            ? [{ evidenceType: "ARTIFACT_LINK" as const, value: input.fileUrl.trim() }]
+            : []),
+          ...((input.evidenceItems ?? []).map((item) => ({
+            evidenceType: item.evidenceType as any,
+            value: item.value,
+            metadata: (item.metadata ?? null) as any,
+          }))),
+        ],
+      },
     },
   });
 
@@ -237,6 +252,18 @@ export async function createSubmission(freelancerId: string, input: CreateSubmis
       notes: input.notes && input.notes.trim() ? input.notes.trim() : null,
       kind: "FINAL",
       status: "SUBMITTED",
+      evidences: {
+        create: [
+          ...(input.fileUrl && input.fileUrl.trim()
+            ? [{ evidenceType: "ARTIFACT_LINK" as const, value: input.fileUrl.trim() }]
+            : []),
+          ...((input.evidenceItems ?? []).map((item) => ({
+            evidenceType: item.evidenceType as any,
+            value: item.value,
+            metadata: (item.metadata ?? null) as any,
+          }))),
+        ],
+      },
     },
   });
 
@@ -254,6 +281,7 @@ export async function rateSubmission(submissionId: string, clientId: string, rat
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
     include: {
+      evidences: true,
       milestone: {
         include: {
           project: {
@@ -262,6 +290,11 @@ export async function rateSubmission(submissionId: string, clientId: string, rat
                 select: { id: true },
               },
               validationCriteria: true,
+              evaluationContract: {
+                include: {
+                  rubricTemplate: true,
+                },
+              },
             },
           },
         },
@@ -291,8 +324,47 @@ export async function rateSubmission(submissionId: string, clientId: string, rat
     : creativeValidationBreakdown(submission.notes, rules);
 
   const systemScore = inferTimelinessScore(submission.createdAt, submission.milestone.createdAt);
-  const finalScore = calculateFinalScore(evaluated.aiScore, rating, systemScore);
-  const decision = finalScore >= 60 ? "APPROVED" : "DISPUTED";
+  const deterministic = runDeterministicValidation({
+    contract: submission.milestone.project.evaluationContract as any,
+    evidences: submission.evidences.map((item) => ({
+      evidenceType: item.evidenceType,
+      value: item.value,
+      metadata: (item.metadata ?? null) as any,
+    })),
+    notes: submission.notes,
+    submissionCreatedAt: submission.createdAt,
+    milestoneCreatedAt: submission.milestone.createdAt,
+  });
+
+  const rubric = Array.isArray((submission.milestone.project.evaluationContract as any)?.scoringRubric)
+    ? ((submission.milestone.project.evaluationContract as any).scoringRubric as Array<{ id: string; title: string; weight: number; prompt: string }>)
+    : [
+      { id: "quality", title: "Quality", weight: 0.5, prompt: "Assess quality against evidence." },
+      { id: "completeness", title: "Completeness", weight: 0.5, prompt: "Assess completeness against required outputs." },
+    ];
+
+  const dualJudge = await runDualModelJudge({
+    rubric,
+    evidences: submission.evidences.map((item) => ({ evidenceType: item.evidenceType, value: item.value })),
+    notes: submission.notes,
+  });
+
+  const weightConfig = (submission.milestone.project.evaluationContract as any)?.rubricTemplate?.weightConfig as
+    | { deterministic?: number; aiJudge?: number; clientRating?: number; systemScore?: number }
+    | undefined;
+
+  const policy = runFusionAndPolicy({
+    deterministicScore: deterministic.score,
+    aiScore: dualJudge.averageAiScore,
+    clientRating: rating,
+    systemScore,
+    consistencyScore: dualJudge.consistencyScore,
+    hardFail: deterministic.hardFail,
+    weightConfig,
+  });
+
+  const finalScore = policy.fusionScore;
+  const decision = policy.policyBand === "AUTO_APPROVE" ? "APPROVED" : "DISPUTED";
 
   const report = await prisma.validationReport.upsert({
     where: { submissionId },
@@ -300,28 +372,71 @@ export async function rateSubmission(submissionId: string, clientId: string, rat
       submissionId,
       projectId: project.id,
       milestoneId: submission.milestoneId,
-      aiScore: evaluated.aiScore,
+      aiScore: dualJudge.averageAiScore,
       clientRating: rating,
       systemScore,
       finalScore,
       decision,
-      breakdown: evaluated.breakdown as any,
+      policyBand: policy.policyBand,
+      requiresHumanReview: policy.requiresHumanReview,
+      breakdown: {
+        legacyHeuristic: evaluated.breakdown,
+        deterministicChecks: deterministic.checks,
+        deterministicScore: deterministic.score,
+        modelA: dualJudge.judgeA,
+        modelB: dualJudge.judgeB,
+        consistencyScore: dualJudge.consistencyScore,
+      } as any,
       explanation:
-        decision === "APPROVED"
+        policy.requiresHumanReview
+          ? "Evaluation entered human-review band. Manual adjudication required before payout."
+          : decision === "APPROVED"
           ? "Submission meets hybrid threshold. Escrow release approved."
           : "Submission below hybrid threshold. Escrow remains locked and dispute path is recommended.",
     },
     update: {
-      aiScore: evaluated.aiScore,
+      aiScore: dualJudge.averageAiScore,
       clientRating: rating,
       systemScore,
       finalScore,
       decision,
-      breakdown: evaluated.breakdown as any,
+      policyBand: policy.policyBand,
+      requiresHumanReview: policy.requiresHumanReview,
+      breakdown: {
+        legacyHeuristic: evaluated.breakdown,
+        deterministicChecks: deterministic.checks,
+        deterministicScore: deterministic.score,
+        modelA: dualJudge.judgeA,
+        modelB: dualJudge.judgeB,
+        consistencyScore: dualJudge.consistencyScore,
+      } as any,
       explanation:
-        decision === "APPROVED"
+        policy.requiresHumanReview
+          ? "Evaluation entered human-review band. Manual adjudication required before payout."
+          : decision === "APPROVED"
           ? "Submission meets hybrid threshold. Escrow release approved."
           : "Submission below hybrid threshold. Escrow remains locked and dispute path is recommended.",
+    },
+  });
+
+  await prisma.evaluationRunAudit.create({
+    data: {
+      submissionId,
+      contractId: submission.milestone.project.evaluationContract?.id ?? null,
+      deterministicScore: deterministic.score,
+      aiScoreA: dualJudge.judgeA.score,
+      aiScoreB: dualJudge.judgeB.score,
+      consistencyScore: dualJudge.consistencyScore,
+      fusionScore: policy.fusionScore,
+      policyBand: policy.policyBand,
+      requiresHumanReview: policy.requiresHumanReview,
+      decisionTrace: {
+        hardFail: deterministic.hardFail,
+        deterministicChecks: deterministic.checks,
+        judgeA: dualJudge.judgeA,
+        judgeB: dualJudge.judgeB,
+        weights: weightConfig ?? null,
+      } as any,
     },
   });
 
@@ -330,7 +445,7 @@ export async function rateSubmission(submissionId: string, clientId: string, rat
     data: { clientRating: rating },
   });
 
-  if (decision === "APPROVED" && project.freelancerId) {
+  if (decision === "APPROVED" && !policy.requiresHumanReview && project.freelancerId) {
     await prisma.$transaction([
       prisma.milestone.update({
         where: { id: submission.milestoneId },
@@ -371,7 +486,7 @@ export async function rateSubmission(submissionId: string, clientId: string, rat
     }
   }
 
-  if (decision === "DISPUTED") {
+  if (decision === "DISPUTED" && !policy.requiresHumanReview) {
     await prisma.project.update({
       where: { id: project.id },
       data: { status: "DISPUTED" },
@@ -379,4 +494,46 @@ export async function rateSubmission(submissionId: string, clientId: string, rat
   }
 
   return report;
+}
+
+export async function requestSubmissionChanges(submissionId: string, clientId: string, feedback: string) {
+  const submission = await prisma.submission.findUnique({
+    where: { id: submissionId },
+    include: {
+      milestone: {
+        include: {
+          project: {
+            select: { id: true, clientId: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!submission) {
+    throw new Error("Submission not found");
+  }
+
+  if (submission.milestone.project.clientId !== clientId) {
+    throw new Error("Only project owner can request changes");
+  }
+
+  if (submission.status === "REJECTED") {
+    throw new Error("Cannot request changes for rejected submission");
+  }
+
+  const updated = await prisma.submission.update({
+    where: { id: submissionId },
+    data: {
+      status: "CHANGES_REQUESTED",
+      clientFeedback: feedback.trim(),
+    },
+  });
+
+  await prisma.milestone.update({
+    where: { id: submission.milestoneId },
+    data: { status: "PENDING" },
+  });
+
+  return updated;
 }

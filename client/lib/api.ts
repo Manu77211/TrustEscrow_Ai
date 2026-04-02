@@ -225,7 +225,12 @@ export async function discoverOpenProjectsRequest(token: string) {
 export async function applyToProjectRequest(
   token: string,
   projectId: string,
-  payload?: { message?: string },
+  payload?: {
+    message?: string;
+    proposedAmount?: number;
+    estimatedDays?: number;
+    deliverables?: string;
+  },
 ) {
   const response = await safeFetch(`${API_BASE_URL}/projects/${projectId}/apply`, {
     method: "POST",
@@ -356,6 +361,23 @@ export async function rateSubmissionRequest(token: string, submissionId: string,
 
   if (!response.ok) {
     throw new Error(await parseErrorMessage(response, "Failed to rate submission"));
+  }
+
+  return response.json();
+}
+
+export async function requestSubmissionChangesRequest(token: string, submissionId: string, feedback: string) {
+  const response = await safeFetch(`${API_BASE_URL}/submissions/${submissionId}/request-changes`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ feedback }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response, "Failed to request changes"));
   }
 
   return response.json();
